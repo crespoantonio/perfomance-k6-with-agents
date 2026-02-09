@@ -1,0 +1,6 @@
+id,name,email,role
+1,john.doe,john.doe@example.com,user
+2,jane.smith,jane.smith@example.com,admin
+3,bob.johnson,bob.johnson@example.com,user
+4,alice.williams,alice.williams@example.com,user
+5,charlie.brown,charlie.brown@example.com,moderator

@@ -1,0 +1,195 @@
+name: K6 Performance Tests
+
+on:
+  push:
+    branches: [main, develop]
+  pull_request:
+    branches: [main, develop]
+  schedule:
+    # Run daily at 2 AM UTC
+    - cron: '0 2 * * *'
+  workflow_dispatch:
+    inputs:
+      test_type:
+        description: 'Test type to run'
+        required: true
+        default: 'smoke'
+        type: choice
+        options:
+          - smoke
+          - load
+          - stress
+          - spike
+
+jobs:
+  smoke-test:
+    name: Smoke Test
+    runs-on: ubuntu-latest
+    if: github.event_name == 'pull_request' || (github.event_name == 'workflow_dispatch' && github.event.inputs.test_type == 'smoke')
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '18'
+          cache: 'npm'
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Build TypeScript
+        run: npm run build
+
+      - name: Pull k6 Docker image
+        run: docker pull grafana/k6:latest
+
+      - name: Run smoke test
+        run: docker run --rm -v ${{ github.workspace }}:/app -w /app grafana/k6:latest run --vus 1 --duration 30s dist/load-test.js
+        env:
+          ENV: ${{ vars.TEST_ENV || 'prod' }}
+          BASE_URL: ${{ secrets.API_BASE_URL || 'https://api.practicesoftwaretesting.com' }}
+          API_KEY: ${{ secrets.API_KEY }}
+
+      - name: Upload test results
+        uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: smoke-test-results
+          path: results/
+          retention-days: 30
+
+  load-test:
+    name: Load Test
+    runs-on: ubuntu-latest
+    if: github.event_name == 'push' || github.event_name == 'schedule' || (github.event_name == 'workflow_dispatch' && github.event.inputs.test_type == 'load')
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '18'
+          cache: 'npm'
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Build TypeScript
+        run: npm run build
+
+      - name: Pull k6 Docker image
+        run: docker pull grafana/k6:latest
+
+      - name: Run load test
+        run: docker run --rm -v ${{ github.workspace }}:/app -w /app grafana/k6:latest run dist/load-test.js
+        env:
+          ENV: ${{ vars.TEST_ENV || 'staging' }}
+          BASE_URL: ${{ secrets.API_BASE_URL_STAGING || secrets.API_BASE_URL }}
+          API_KEY: ${{ secrets.API_KEY }}
+          VUS: ${{ vars.LOAD_TEST_VUS || '10' }}
+          DURATION: ${{ vars.LOAD_TEST_DURATION || '5m' }}
+
+      - name: Upload test results
+        uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: load-test-results
+          path: results/
+          retention-days: 30
+
+      - name: Comment PR with results
+        if: github.event_name == 'pull_request'
+        uses: actions/github-script@v7
+        with:
+          script: |
+            const fs = require('fs');
+            // Add logic to parse results and comment on PR
+            github.rest.issues.createComment({
+              issue_number: context.issue.number,
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              body: '✅ Load test completed successfully!'
+            });
+
+  stress-test:
+    name: Stress Test
+    runs-on: ubuntu-latest
+    if: github.event_name == 'schedule' || (github.event_name == 'workflow_dispatch' && github.event.inputs.test_type == 'stress')
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '18'
+          cache: 'npm'
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Build TypeScript
+        run: npm run build
+
+      - name: Pull k6 Docker image
+        run: docker pull grafana/k6:latest
+
+      - name: Run stress test
+        run: docker run --rm -v ${{ github.workspace }}:/app -w /app grafana/k6:latest run dist/stress-test.js
+        env:
+          ENV: ${{ vars.TEST_ENV || 'staging' }}
+          BASE_URL: ${{ secrets.API_BASE_URL_STAGING || secrets.API_BASE_URL }}
+          API_KEY: ${{ secrets.API_KEY }}
+
+      - name: Upload test results
+        uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: stress-test-results
+          path: results/
+          retention-days: 30
+
+  spike-test:
+    name: Spike Test
+    runs-on: ubuntu-latest
+    if: github.event_name == 'workflow_dispatch' && github.event.inputs.test_type == 'spike'
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '18'
+          cache: 'npm'
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Build TypeScript
+        run: npm run build
+
+      - name: Pull k6 Docker image
+        run: docker pull grafana/k6:latest
+
+      - name: Run spike test
+        run: docker run --rm -v ${{ github.workspace }}:/app -w /app grafana/k6:latest run dist/spike-test.js
+        env:
+          ENV: ${{ vars.TEST_ENV || 'staging' }}
+          BASE_URL: ${{ secrets.API_BASE_URL_STAGING || secrets.API_BASE_URL }}
+          API_KEY: ${{ secrets.API_KEY }}
+
+      - name: Upload test results
+        uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: spike-test-results
+          path: results/
+          retention-days: 30
